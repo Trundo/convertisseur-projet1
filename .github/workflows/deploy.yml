@@ -35,6 +35,9 @@ jobs:
     name: Deploiement sur la VM
     needs: tests
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://trundo.win
     steps:
       - name: Preparer la connexion SSH
         env:
