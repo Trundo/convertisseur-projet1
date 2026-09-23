@@ -1,0 +1,83 @@
+name: CI/CD - Deploiement sur Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Installation et tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recuperer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Backend - installation et tests
+        working-directory: backend
+        run: |
+          npm ci
+          npm test
+
+      - name: Frontend - installation, tests et build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+  deploiement:
+    name: Deploiement sur la VM
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preparer la connexion SSH
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_KNOWN_HOSTS: ${{ secrets.VM_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$VM_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "$VM_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Mettre a jour et redemarrer l'application
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$VM_USER@$VM_HOST" 'bash -s' <<'EOF'
+          set -e
+          cd /var/www/convertisseur
+          echo "== Recuperation de la derniere version de main =="
+          git fetch origin main
+          git reset --hard origin/main
+          echo "== Backend =="
+          cd backend
+          npm ci --omit=dev
+          echo "== Frontend =="
+          cd ../frontend
+          npm ci
+          npm run build
+          echo "== Redemarrage du service =="
+          sudo systemctl restart convertisseur
+          EOF
+
+      - name: Verifier que le site repond
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsS https://trundo.win/api/health; then
+              echo ""
+              echo "Deploiement reussi"
+              exit 0
+            fi
+            echo "Essai $i echoue, nouvel essai dans 5 secondes..."
+            sleep 5
+          done
+          echo "Le site ne repond pas : deploiement en echec"
+          exit 1
