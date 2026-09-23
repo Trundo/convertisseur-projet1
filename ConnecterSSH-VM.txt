@@ -1,0 +1,1 @@
+ssh -i "$env:USERPROFILE\.ssh\vm-projet1-mik_key.pem" trundo@20.80.47.76
